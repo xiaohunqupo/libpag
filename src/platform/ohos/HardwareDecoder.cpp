@@ -14,6 +14,7 @@
 //  either express or implied. see the license for the specific language governing permissions
 //  and limitations under the license.
 //
+/////////////////////////////////////////////////////////////////////////////////////////////////
 
 #include "HardwareDecoder.h"
 #include <multimedia/player_framework/native_avbuffer.h>
@@ -21,11 +22,14 @@
 #include <multimedia/player_framework/native_avcodec_base.h>
 #include <multimedia/player_framework/native_avformat.h>
 #include <cstddef>
+#include <cstdint>
 #include <mutex>
 #include "base/utils/Log.h"
+#include "rendering/video/SoftwareData.h"
 #include "tgfx/core/ImageCodec.h"
 
 namespace pag {
+#define NV12_PLANE_COUNT 2
 
 void OH_AVCodecOnError(OH_AVCodec*, int32_t, void*) {
 }
@@ -54,10 +58,23 @@ void OH_AVCodecOnNewOutputBuffer(OH_AVCodec*, uint32_t index, OH_AVBuffer* buffe
 }
 
 HardwareDecoder::HardwareDecoder(const VideoFormat& format) {
-  isValid = initDecoder(format);
+  videoFormat = format;
+  isValid = initDecoder(codecCategory);
+  // We currently have some unresolved issues with enabling software decoding, so we should disable it for now.
+  //   if (!isValid) {
+  //     codecCategory = SOFTWARE;
+  //     LOGI("Fall back to the software decoder!");
+  //     isValid = initDecoder(codecCategory);
+  //   }
 }
 
 HardwareDecoder::~HardwareDecoder() {
+  if (codecCategory == SOFTWARE) {
+    if (yuvBuffer.data[0] != nullptr) {
+      delete[] yuvBuffer.data[0];
+      delete[] yuvBuffer.data[1];
+    }
+  }
   if (videoCodec != nullptr) {
     OH_VideoDecoder_Flush(videoCodec);
     OH_VideoDecoder_Stop(videoCodec);
@@ -69,9 +86,9 @@ HardwareDecoder::~HardwareDecoder() {
   }
 }
 
-bool HardwareDecoder::initDecoder(const VideoFormat& format) {
+bool HardwareDecoder::initDecoder(const OH_AVCodecCategory avCodecCategory) {
   OH_AVCapability* capability =
-      OH_AVCodec_GetCapabilityByCategory(OH_AVCODEC_MIMETYPE_VIDEO_AVC, false, HARDWARE);
+      OH_AVCodec_GetCapabilityByCategory(OH_AVCODEC_MIMETYPE_VIDEO_AVC, false, avCodecCategory);
   const char* name = OH_AVCapability_GetName(capability);
   videoCodec = OH_VideoDecoder_CreateByName(name);
   if (videoCodec == nullptr) {
@@ -89,8 +106,8 @@ bool HardwareDecoder::initDecoder(const VideoFormat& format) {
   }
 
   OH_AVFormat* ohFormat = OH_AVFormat_Create();
-  OH_AVFormat_SetIntValue(ohFormat, OH_MD_KEY_WIDTH, format.width);
-  OH_AVFormat_SetIntValue(ohFormat, OH_MD_KEY_HEIGHT, format.height);
+  OH_AVFormat_SetIntValue(ohFormat, OH_MD_KEY_WIDTH, videoFormat.width);
+  OH_AVFormat_SetIntValue(ohFormat, OH_MD_KEY_HEIGHT, videoFormat.height);
   OH_AVFormat_SetIntValue(ohFormat, OH_MD_KEY_PIXEL_FORMAT, AV_PIXEL_FORMAT_NV12);
   ret = OH_VideoDecoder_Configure(videoCodec, ohFormat);
   OH_AVFormat_Destroy(ohFormat);
@@ -103,7 +120,6 @@ bool HardwareDecoder::initDecoder(const VideoFormat& format) {
     LOGE("video decoder prepare failed!, ret:%d", ret);
     return false;
   }
-  videoFormat = format;
   if (!start()) {
     LOGE("video decoder start failed!, ret:%d", ret);
     return false;
@@ -154,8 +170,12 @@ DecodingResult HardwareDecoder::onEndOfStream() {
 DecodingResult HardwareDecoder::onDecodeFrame() {
   std::unique_lock<std::mutex> lock(codecUserData->outputMutex);
   codecUserData->outputCondition.wait(lock, [this]() {
+    // In the PAG file, video sequence frame software decoding testing requires sending additional
+    // data before obtaining the decoded data. If compatibility with user video decoding is desired,
+    // retesting is necessary.
     return codecUserData->outputBufferInfoQueue.size() > 0 ||
-           pendingFrames.size() <= static_cast<size_t>(videoFormat.maxReorderSize);
+           pendingFrames.size() <= static_cast<size_t>(videoFormat.maxReorderSize) +
+                                       (codecCategory == SOFTWARE ? 1 : 0);
   });
   if (codecUserData->outputBufferInfoQueue.size() > 0) {
     codecBufferInfo = codecUserData->outputBufferInfoQueue.front();
@@ -164,7 +184,12 @@ DecodingResult HardwareDecoder::onDecodeFrame() {
     pendingFrames.remove(codecBufferInfo.attr.pts);
   } else {
     lock.unlock();
-    return DecodingResult::TryAgainLater;
+    return DecodingResult::Success;
+  }
+  int ret = OH_VideoDecoder_FreeOutputBuffer(videoCodec, codecBufferInfo.bufferIndex);
+  if (ret != AV_ERR_OK) {
+    LOGE("OH_VideoDecoder_FreeOutputBuffer failed, ret:%d", ret);
+    return DecodingResult::Error;
   }
   if (codecBufferInfo.attr.flags == AVCODEC_BUFFER_FLAGS_EOS) {
     return DecodingResult::EndOfStream;
@@ -195,15 +220,41 @@ bool HardwareDecoder::start() {
 }
 
 int64_t HardwareDecoder::presentationTime() {
-  return codecBufferInfo.attr.pts;
+  if (codecBufferInfo.buffer) {
+    return codecBufferInfo.attr.pts;
+  }
+  return -1;
 }
 
 std::shared_ptr<tgfx::ImageBuffer> HardwareDecoder::onRenderFrame() {
-  std::shared_ptr<tgfx::ImageBuffer> imageBuffer = tgfx::ImageBuffer::MakeFrom(
-      OH_AVBuffer_GetNativeBuffer(codecBufferInfo.buffer), videoFormat.colorSpace);
-  int ret = OH_VideoDecoder_FreeOutputBuffer(videoCodec, codecBufferInfo.bufferIndex);
-  if (ret != AV_ERR_OK) {
-    LOGE("OH_VideoDecoder_FreeOutputBuffer failed, ret:%d", ret);
+  std::shared_ptr<tgfx::ImageBuffer> imageBuffer = nullptr;
+  if (codecCategory == HARDWARE) {
+    imageBuffer = tgfx::ImageBuffer::MakeFrom(OH_AVBuffer_GetNativeBuffer(codecBufferInfo.buffer),
+                                              videoFormat.colorSpace);
+  } else {
+    if (videoStride == 0) {
+      OH_AVFormat* format = OH_VideoDecoder_GetOutputDescription(videoCodec);
+      if (format) {
+        OH_AVFormat_GetIntValue(format, OH_MD_KEY_VIDEO_STRIDE, &videoStride);
+        OH_AVFormat_GetIntValue(format, OH_MD_KEY_VIDEO_SLICE_HEIGHT, &videoSliceHeight);
+      } else {
+        return nullptr;
+      }
+      yBufferSize = videoStride * videoSliceHeight;
+      uvBufferSize = codecBufferInfo.attr.size - yBufferSize;
+      yuvBuffer.data[0] = new uint8_t[yBufferSize];
+      yuvBuffer.data[1] = new uint8_t[uvBufferSize];
+      yuvBuffer.lineSize[0] = videoStride;
+      yuvBuffer.lineSize[1] = videoStride;
+      OH_AVFormat_Destroy(format);
+    }
+    uint8_t* yuvAddress = OH_AVBuffer_GetAddr(codecBufferInfo.buffer);
+    memcpy(yuvBuffer.data[0], yuvAddress, yBufferSize);
+    memcpy(yuvBuffer.data[1], yuvAddress + yBufferSize, uvBufferSize);
+    auto yuvData = SoftwareData<HardwareDecoder>::Make(
+        videoFormat.width, videoFormat.height, yuvBuffer.data, yuvBuffer.lineSize, NV12_PLANE_COUNT,
+        std::shared_ptr<HardwareDecoder>(this));
+    imageBuffer = tgfx::ImageBuffer::MakeNV12(yuvData, videoFormat.colorSpace);
   }
   return imageBuffer;
 }
