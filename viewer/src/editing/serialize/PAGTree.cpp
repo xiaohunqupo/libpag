@@ -16,21 +16,27 @@
 //
 /////////////////////////////////////////////////////////////////////////////////////////////////
 
-#pragma once
+#include "PAGTree.h"
+#include <QDebug>
+#include "editing/serialize/PAGFileSerializer.h"
 
-#include <QString>
-#include "pag/file.h"
+namespace pag {
 
-namespace pag::Utils {
+void PAGTree::setFile(const std::shared_ptr<File>& file) {
+  this->file = file;
+}
 
-void OpenInFinder(const QString& path, bool select = true);
+PAGTreeNode* PAGTree::getRootNode() {
+  return rootNode.get();
+}
 
-bool DeleteFile(const QString& path);
+void PAGTree::buildTree() {
+  if (file == nullptr) {
+    return;
+  }
+  rootNode = std::make_unique<PAGTreeNode>(nullptr);
+  rootNode->setName("file");
+  FileSerializer::Serialize(file, rootNode.get());
+}
 
-bool DeleteDir(const QString& path);
-
-bool MakeDir(const QString& path, bool isDir = true);
-
-bool WriteFileToDisk(const std::shared_ptr<File>& file, const QString& filePath);
-
-}  // namespace pag::Utils
+}  // namespace pag

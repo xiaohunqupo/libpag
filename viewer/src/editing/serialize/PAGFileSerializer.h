@@ -18,19 +18,18 @@
 
 #pragma once
 
-#include <QString>
+#include "editing/serialize/PAGTreeNode.h"
 #include "pag/file.h"
+#include "rttr/type.h"
 
-namespace pag::Utils {
+namespace pag::FileSerializer {
 
-void OpenInFinder(const QString& path, bool select = true);
+void Serialize(const std::shared_ptr<File>& file, PAGTreeNode* node);
+void SerializeInstance(const rttr::instance& item, PAGTreeNode* node);
+void SerializeVariant(const rttr::variant& value, PAGTreeNode* node);
+void SerializeSequentialContainer(const rttr::variant_sequential_view& view, PAGTreeNode* node);
+void SerializeAssociativeContainer(const rttr::variant_associative_view& view, PAGTreeNode* node);
+QString TransformNumberToQString(const rttr::type& type, const rttr::variant& value);
+QString TransformEnumToQString(const rttr::variant& value);
 
-bool DeleteFile(const QString& path);
-
-bool DeleteDir(const QString& path);
-
-bool MakeDir(const QString& path, bool isDir = true);
-
-bool WriteFileToDisk(const std::shared_ptr<File>& file, const QString& filePath);
-
-}  // namespace pag::Utils
+}  // namespace pag::FileSerializer

@@ -18,19 +18,20 @@
 
 #pragma once
 
-#include <QString>
+#include "editing/serialize/PAGTreeNode.h"
 #include "pag/file.h"
 
-namespace pag::Utils {
+namespace pag {
 
-void OpenInFinder(const QString& path, bool select = true);
+class PAGTree {
+ public:
+  void setFile(const std::shared_ptr<File>& file);
+  PAGTreeNode* getRootNode();
+  void buildTree();
 
-bool DeleteFile(const QString& path);
+ private:
+  std::shared_ptr<File> file = nullptr;
+  std::unique_ptr<PAGTreeNode> rootNode = nullptr;
+};
 
-bool DeleteDir(const QString& path);
-
-bool MakeDir(const QString& path, bool isDir = true);
-
-bool WriteFileToDisk(const std::shared_ptr<File>& file, const QString& filePath);
-
-}  // namespace pag::Utils
+}  // namespace pag

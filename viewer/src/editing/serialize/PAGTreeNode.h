@@ -19,18 +19,35 @@
 #pragma once
 
 #include <QString>
-#include "pag/file.h"
+#include <vector>
 
-namespace pag::Utils {
+namespace pag {
 
-void OpenInFinder(const QString& path, bool select = true);
+class PAGTreeNode {
+ public:
+  explicit PAGTreeNode(PAGTreeNode* parent);
+  ~PAGTreeNode();
 
-bool DeleteFile(const QString& path);
+  PAGTreeNode* getChild(int row) const;
+  PAGTreeNode* getParent() const;
+  int getRow() const;
+  int getChildrenCount() const;
+  int getColumnCount() const;
+  QVariant getData(int column) const;
+  QString getName() const;
+  QString getValue() const;
+  void setName(QString name);
+  void setValue(QVariant value);
+  void setValue(QString value);
+  void setParent(PAGTreeNode* parent);
+  void appendChild(std::unique_ptr<PAGTreeNode> child);
+  void clear();
 
-bool DeleteDir(const QString& path);
+ private:
+  QString name = "";
+  QString value = "";
+  PAGTreeNode* parent = nullptr;
+  std::vector<std::unique_ptr<PAGTreeNode>> children = {};
+};
 
-bool MakeDir(const QString& path, bool isDir = true);
-
-bool WriteFileToDisk(const std::shared_ptr<File>& file, const QString& filePath);
-
-}  // namespace pag::Utils
+}  //  namespace pag
