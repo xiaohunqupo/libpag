@@ -20,7 +20,7 @@
 #include <QQmlContext>
 #include "PAGRenderThread.h"
 #include "PAGWindowHelper.h"
-#include "profiling/PAGRunTimeModelManager.h"
+#include "profiling/PAGRunTimeDataModel.h"
 #include "task/PAGTaskFactory.h"
 
 namespace pag {
@@ -29,8 +29,6 @@ QList<PAGWindow*> PAGWindow::AllWindows;
 
 PAGWindow::PAGWindow(QObject* parent) : QObject(parent) {
 }
-
-PAGWindow::~PAGWindow() = default;
 
 void PAGWindow::openFile(QString path) {
   bool result = pagView->setFile(path);
@@ -49,10 +47,24 @@ void PAGWindow::onPAGViewerDestroyed() {
 void PAGWindow::open() {
   engine = std::make_unique<QQmlApplicationEngine>();
   windowHelper = std::make_unique<PAGWindowHelper>();
+  treeViewModel = std::make_unique<PAGTreeViewModel>();
+  runTimeDataModel = std::make_unique<PAGRunTimeDataModel>();
+  editAttributeModel = std::make_unique<PAGEditAttributeModel>();
+  textLayerModel = std::make_unique<PAGTextLayerModel>();
+  imageLayerModel = std::make_unique<PAGImageLayerModel>();
 
   auto context = engine->rootContext();
   context->setContextProperty("windowHelper", windowHelper.get());
+  context->setContextProperty("treeViewModel", treeViewModel.get());
+  context->setContextProperty("runTimeDataModel", runTimeDataModel.get());
+  context->setContextProperty("editAttributeModel", editAttributeModel.get());
+  context->setContextProperty("textLayerModel", textLayerModel.get());
+  context->setContextProperty("imageLayerModel", imageLayerModel.get());
 
+  // Image Provider will be managed by QML
+  auto imageProvider = new PAGImageProvider();
+  imageProvider->setImageLayerModel(imageLayerModel.get());
+  engine->addImageProvider(QLatin1String("PAGImageProvider"), imageProvider);
   engine->load(QUrl(QStringLiteral("qrc:/qml/Main.qml")));
 
   window = static_cast<QQuickWindow*>(engine->rootObjects().at(0));
@@ -65,16 +77,22 @@ void PAGWindow::open() {
 
   pagView = window->findChild<pag::PAGView*>("pagView");
   auto* taskFactory = window->findChild<PAGTaskFactory*>("taskFactory");
-  auto* runTimeModelManager = window->findChild<PAGRunTimeModelManager*>("runTimeModelManager");
   PAGRenderThread* renderThread = pagView->getRenderThread();
 
   connect(window, SIGNAL(closing(QQuickCloseEvent*)), this, SLOT(onPAGViewerDestroyed()),
           Qt::QueuedConnection);
   connect(window, &QQuickWindow::afterRendering, pagView, &PAGView::flush);
-  connect(pagView, &PAGView::fileChanged, taskFactory, &PAGTaskFactory::resetFile);
-  connect(pagView, &PAGView::fileChanged, runTimeModelManager, &PAGRunTimeModelManager::resetFile);
-  connect(renderThread, &PAGRenderThread::frameTimeMetricsReady, runTimeModelManager,
-          &PAGRunTimeModelManager::updateData);
+  connect(pagView, &PAGView::filePathChanged, taskFactory, &PAGTaskFactory::setFilePath);
+  connect(pagView, &PAGView::fileChanged, treeViewModel.get(), &PAGTreeViewModel::setFile);
+  connect(pagView, &PAGView::pagFileChanged, editAttributeModel.get(),
+          &PAGEditAttributeModel::setPAGFile);
+  connect(pagView, &PAGView::pagFileChanged, runTimeDataModel.get(),
+          &PAGRunTimeDataModel::setPAGFile);
+  connect(pagView, &PAGView::pagFileChanged, textLayerModel.get(), &PAGTextLayerModel::setPAGFile);
+  connect(pagView, &PAGView::pagFileChanged, imageLayerModel.get(),
+          &PAGImageLayerModel::setPAGFile);
+  connect(renderThread, &PAGRenderThread::frameTimeMetricsReady, runTimeDataModel.get(),
+          &PAGRunTimeDataModel::updateData);
 }
 
 QString PAGWindow::getFilePath() {
