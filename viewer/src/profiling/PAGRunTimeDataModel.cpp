@@ -2,7 +2,7 @@
 //
 //  Tencent is pleased to support the open source community by making libpag available.
 //
-//  Copyright (C) 2021 THL A29 Limited, a Tencent company. All rights reserved.
+//  Copyright (C) 2025 THL A29 Limited, a Tencent company. All rights reserved.
 //
 //  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file
 //  except in compliance with the License. You may obtain a copy of the License at
@@ -16,7 +16,7 @@
 //
 /////////////////////////////////////////////////////////////////////////////////////////////////
 
-#include "PAGRunTimeModelManager.h"
+#include "PAGRunTimeDataModel.h"
 #include "base/utils/TimeUtil.h"
 #include "pag/pag.h"
 
@@ -26,26 +26,26 @@ FrameTimeMetrics::FrameTimeMetrics(int64_t renderTime, int64_t presentTime, int6
     : renderTime(renderTime), presentTime(presentTime), imageDecodeTime(imageDecodeTime) {
 }
 
-PAGRunTimeModelManager::PAGRunTimeModelManager(QObject* parent) : QObject(parent) {
+PAGRunTimeDataModel::PAGRunTimeDataModel(QObject* parent) : QObject(parent) {
 }
 
-QString PAGRunTimeModelManager::getTotalFrame() const {
+QString PAGRunTimeDataModel::getTotalFrame() const {
   return QString::number(totalFrame);
 }
 
-QString PAGRunTimeModelManager::getCurrentFrame() const {
+QString PAGRunTimeDataModel::getCurrentFrame() const {
   return QString::number(currentFrame);
 }
 
-const PAGFileInfoModel* PAGRunTimeModelManager::getFileInfoModel() const {
+const PAGFileInfoModel* PAGRunTimeDataModel::getFileInfoModel() const {
   return &fileInfoModel;
 }
 
-const PAGFrameDisplayInfoModel* PAGRunTimeModelManager::getFrameDisplayInfoModel() const {
+const PAGFrameDisplayInfoModel* PAGRunTimeDataModel::getFrameDisplayInfoModel() const {
   return &frameDisplayInfoModel;
 }
 
-void PAGRunTimeModelManager::setCurrentFrame(const QString& currentFrame) {
+void PAGRunTimeDataModel::setCurrentFrame(const QString& currentFrame) {
   if (this->currentFrame == currentFrame.toLongLong()) {
     return;
   }
@@ -53,8 +53,8 @@ void PAGRunTimeModelManager::setCurrentFrame(const QString& currentFrame) {
   Q_EMIT dataChanged();
 }
 
-void PAGRunTimeModelManager::updateData(int64_t currentFrame, int64_t renderTime,
-                                        int64_t presentTime, int64_t imageDecodeTime) {
+void PAGRunTimeDataModel::updateData(int64_t currentFrame, int64_t renderTime, int64_t presentTime,
+                                     int64_t imageDecodeTime) {
   if (this->currentFrame == currentFrame) {
     return;
   }
@@ -69,20 +69,19 @@ void PAGRunTimeModelManager::updateData(int64_t currentFrame, int64_t renderTime
   Q_EMIT dataChanged();
 }
 
-void PAGRunTimeModelManager::resetFile(const std::shared_ptr<PAGFile>& pagFile,
-                                       const std::string& filePath) {
+void PAGRunTimeDataModel::setPAGFile(const std::shared_ptr<PAGFile>& pagFile) {
   totalFrame = TimeToFrame(pagFile->duration(), pagFile->frameRate());
   currentFrame = -1;
   frameTimeMetricsVector.resize(totalFrame, {0, 0, 0});
   frameTimeMetricsVector.squeeze();
   frameTimeMetricsVector.clear();
-  fileInfoModel.resetFile(pagFile, filePath);
+  fileInfoModel.setPAGFile(pagFile);
   updateFrameDisplayInfo(0, 0, 0);
   Q_EMIT dataChanged();
 }
 
-void PAGRunTimeModelManager::updateFrameDisplayInfo(int64_t renderTime, int64_t presentTime,
-                                                    int64_t imageDecodeTime) {
+void PAGRunTimeDataModel::updateFrameDisplayInfo(int64_t renderTime, int64_t presentTime,
+                                                 int64_t imageDecodeTime) {
   int64_t renderAvg = 0;
   int64_t renderMax = 0;
   int64_t renderTotal = 0;

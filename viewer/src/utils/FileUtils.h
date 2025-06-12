@@ -2,7 +2,7 @@
 //
 //  Tencent is pleased to support the open source community by making libpag available.
 //
-//  Copyright (C) 2021 THL A29 Limited, a Tencent company. All rights reserved.
+//  Copyright (C) 2025 THL A29 Limited, a Tencent company. All rights reserved.
 //
 //  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file
 //  except in compliance with the License. You may obtain a copy of the License at
@@ -19,15 +19,20 @@
 #pragma once
 
 #include <QString>
+#include "pag/file.h"
 
 namespace pag::Utils {
 
-void openInFinder(const QString& path, bool select = true);
+void OpenInFinder(const QString& path, bool select = true);
 
-bool deleteFile(const QString& path);
+bool DeleteFile(const QString& path);
 
-bool deleteDir(const QString& path);
+bool DeleteDir(const QString& path);
 
-bool makeDir(const QString& path, bool isDir = true);
+bool MakeDir(const QString& path, bool isDir = true);
+
+bool WriteFileToDisk(const std::shared_ptr<File>& file, const QString& filePath);
+
+bool WriteDataToDisk(const QString& filePath, const void* data, size_t length);
 
 }  // namespace pag::Utils
